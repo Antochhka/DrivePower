@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  csms:
+    build:
+      context: ./csms
+      dockerfile: Dockerfile
+    container_name: csms
+    ports:
+      - "8080:8080"
+
+  emulator:
+    build:
+      context: ./station-emulator     # ВАЖНО: здесь лежит Cargo.toml
+      dockerfile: Dockerfile
+    container_name: station-emulator
+    depends_on:
+      - csms
+    volumes:
+      - ./emulator.env:/usr/src/app/.env:ro
