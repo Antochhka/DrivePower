@@ -1,0 +1,8 @@
+# Go build artifacts
+csms/charging_station
+
+# Rust build artifacts
+station-emulator/target/
+
+# Editor settings
+.vscode/

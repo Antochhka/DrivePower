@@ -104,7 +104,13 @@ func sendJSON(c *websocket.Conn, payload any) error {
 	return c.WriteMessage(websocket.TextMessage, b)
 }
 
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
+}
+
 func main() {
+	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/ocpp/", ocppHandler)
 	log.Println("CSMS stub listening on :8080  (ws)  path=/ocpp/")
 	log.Fatal(http.ListenAndServe(":8080", nil))

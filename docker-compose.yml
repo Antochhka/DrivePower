@@ -8,6 +8,11 @@ services:
     container_name: csms
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "-", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   emulator:
     build:
@@ -15,6 +20,9 @@ services:
       dockerfile: Dockerfile
     container_name: station-emulator
     depends_on:
-      - csms
+      csms:
+        condition: service_healthy
+    env_file:
+      - emulator.env
     volumes:
       - ./emulator.env:/usr/src/app/.env:ro
