@@ -10,13 +10,13 @@ extern crate queues;
 
 use std::env;
 
-use ws::{connect};
+use ws::connect;
 
+mod client;
+mod components;
 mod requests;
 mod responses;
-mod components;
 mod storage;
-mod client;
 
 /// Station configuration struct.
 #[derive(Debug)]
@@ -55,5 +55,7 @@ fn main() {
     connection_string.push_str("/");
     connection_string.push_str(&config.station_id);
 
-    connect(connection_string, |out| { client::Client { out: out } }).unwrap()
+    println!("Connecting to: {}", connection_string);
+
+    connect(connection_string, |out| client::Client { out: out }).unwrap()
 }

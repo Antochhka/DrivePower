@@ -9,20 +9,25 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	ocppSubprotocol   = "ocpp2.0"
+	heartbeatInterval = 10
+)
+
 var upgrader = websocket.Upgrader{
-	Subprotocols: []string{"ocpp2.0.0"},
-	CheckOrigin:  func(r *http.Request) bool { return true }, // для локальной отладки
+	Subprotocols: []string{ocppSubprotocol},
+	CheckOrigin:  func(r *http.Request) bool { return true },
 }
 
 func ocppHandler(w http.ResponseWriter, r *http.Request) {
 	c, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {.й
+	if err != nil {
 		log.Println("upgrade err:", err)
 		return
 	}
 	defer c.Close()
 
-	if c.Subprotocol() != "ocpp2.0.1" {
+	if c.Subprotocol() != ocppSubprotocol {
 		log.Println("wrong subprotocol:", c.Subprotocol())
 		return
 	}
@@ -30,10 +35,14 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("OCPP connected:", r.RemoteAddr)
 
 	for {
-		_, msg, err := c.ReadMessage()
+		msgType, msg, err := c.ReadMessage()
 		if err != nil {
 			log.Println("read err:", err)
 			return
+		}
+		if msgType != websocket.TextMessage {
+			log.Println("unexpected message type:", msgType)
+			continue
 		}
 		log.Printf("RX: %s\n", string(msg))
 
@@ -43,37 +52,56 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		typ, _ := frame[0].(float64)   // 2=Call, 3=Result, 4=Error
-		uid, _ := frame[1].(string)    // UniqueId
-		action, _ := frame[2].(string) // "BootNotification", "Heartbeat", ...
+		typ, _ := frame[0].(float64)
+		uid, _ := frame[1].(string)
+		action, _ := frame[2].(string)
 		now := time.Now().UTC().Format(time.RFC3339)
 
-		if int(typ) == 2 { // Call
+		if int(typ) == 2 {
 			switch action {
 			case "BootNotification":
 				resp := []any{3, uid, map[string]any{
 					"currentTime": now,
-					"interval":    300, // 5 минут
+					"interval":    heartbeatInterval,
 					"status":      "Accepted",
 				}}
-				b, _ := json.Marshal(resp)
-				_ = c.WriteMessage(websocket.TextMessage, b)
-				log.Println("TX: BootNotification.Accepted")
+				if err := sendJSON(c, resp); err != nil {
+					log.Println("write BootNotification err:", err)
+					return
+				}
+				log.Printf("TX: BootNotification.Accepted (interval=%d)\n", heartbeatInterval)
 
 			case "Heartbeat":
 				resp := []any{3, uid, map[string]any{
 					"currentTime": now,
 				}}
-				b, _ := json.Marshal(resp)
-				_ = c.WriteMessage(websocket.TextMessage, b)
-				log.Println("TX: Heartbeat")
+				if err := sendJSON(c, resp); err != nil {
+					log.Println("write Heartbeat err:", err)
+					return
+				}
+				log.Println("TX: Heartbeat response")
+
+				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Heartbeat test complete")
+				if err := c.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(2*time.Second)); err != nil {
+					log.Println("close control err:", err)
+				} else {
+					log.Println("Closing connection after heartbeat test")
+				}
+				return
 
 			default:
-				// на прочие вызовы пока не отвечаем
 				log.Println("Unhandled action:", action)
 			}
 		}
 	}
+}
+
+func sendJSON(c *websocket.Conn, payload any) error {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return c.WriteMessage(websocket.TextMessage, b)
 }
 
 func main() {
