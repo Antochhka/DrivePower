@@ -12,7 +12,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libnss3 \
-        libnss_dns \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m emulator
 WORKDIR /usr/src/app
