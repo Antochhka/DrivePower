@@ -1,21 +1,24 @@
 use std::env;
 
-use url;
-use ws::util::Token;
-use ws::{Handler, Sender, Handshake, Result, Message, Request, Error, ErrorKind, CloseCode};
-use uuid::Uuid;
 use chrono::prelude::*;
 use json::JsonValue;
+use url;
+use uuid::Uuid;
+use ws::util::Token;
+use ws::{CloseCode, Error, ErrorKind, Handler, Handshake, Message, Request, Result, Sender};
 
+use crate::components;
 use crate::requests;
 use crate::responses;
-use crate::components;
 use crate::storage;
 
 /// This macro allows to break from a code block outside of a loop.
 macro_rules! block {
     ($xs:block) => {
-        loop { let _ = $xs; break; }
+        loop {
+            let _ = $xs;
+            break;
+        }
     };
 }
 
@@ -40,7 +43,6 @@ pub struct Client {
 /// We implement the Handler trait for Client so that we can get more
 /// fine-grained control of the connection.
 impl Handler for Client {
-
     /// Add protocol to initial handshake request.
     fn build_request(&mut self, url: &url::Url) -> Result<Request> {
         let mut req = Request::from_url(url).unwrap();
@@ -59,13 +61,25 @@ impl Handler for Client {
 
         // Get model from environment.
         let model: String = match env::var("MODEL") {
-            Ok(var) => if var == "" { "Model".to_string() } else { var },
+            Ok(var) => {
+                if var == "" {
+                    "Model".to_string()
+                } else {
+                    var
+                }
+            }
             _ => "Model".to_string(),
         };
 
         // Get vendor name from environment.
         let vendor_name: String = match env::var("VENDOR_NAME") {
-            Ok(var) => if var == "" { "Vendor name".to_string() } else { var },
+            Ok(var) => {
+                if var == "" {
+                    "Vendor name".to_string()
+                } else {
+                    var
+                }
+            }
             _ => "Vendor name".to_string(),
         };
 
@@ -78,7 +92,8 @@ impl Handler for Client {
         // Send BootNotification request.
 
         let msg_id: &str = &Uuid::new_v4().to_string();
-        let msg = requests::boot_notification(msg_id, "PowerUp", &model, &vendor_name, serial_number);
+        let msg =
+            requests::boot_notification(msg_id, "PowerUp", &model, &vendor_name, serial_number);
 
         storage::set_message(msg_id.to_string(), msg.to_owned());
 
@@ -124,9 +139,10 @@ impl Handler for Client {
                         for i in 0..set_variable_data_array.len() {
                             let set_variable_data = &set_variable_data_array[i];
                             let component_name: &str = &set_variable_data["component"].to_string();
-                            let variable_name: &str = &set_variable_data["variable"]["name"].to_string();
+                            let variable_name: &str =
+                                &set_variable_data["variable"]["name"].to_string();
 
-                            let mut variable = object!{
+                            let mut variable = object! {
                                 "component" => component_name,
                                 "variable" => object!{
                                     "name" => variable_name,
@@ -134,11 +150,11 @@ impl Handler for Client {
                             };
 
                             match component_name {
-                                "AuthCtrlr" => {
-                                    match variable_name {
-                                        "AuthorizeRemoteStart" => variable["attributeStatus"] = "Rejected".into(),
-                                        _ => variable["attributeStatus"] = "UnknownVariable".into(),
+                                "AuthCtrlr" => match variable_name {
+                                    "AuthorizeRemoteStart" => {
+                                        variable["attributeStatus"] = "Rejected".into()
                                     }
+                                    _ => variable["attributeStatus"] = "UnknownVariable".into(),
                                 },
                                 _ => variable["attributeStatus"] = "UnknownComponent".into(),
                             };
@@ -149,7 +165,7 @@ impl Handler for Client {
                         let response_msg: String = responses::set_variables(msg_id, variables);
 
                         self.out.send(response_msg)?;
-                    },
+                    }
                     "GetVariables" => {
                         // Send GetVariables response.
 
@@ -160,11 +176,13 @@ impl Handler for Client {
                         for i in 0..get_variable_data_array.len() {
                             let get_variable_data = &get_variable_data_array[i];
                             let component_name: &str = &get_variable_data["component"].to_string();
-                            let variable_name: &str = &get_variable_data["variable"]["name"].to_string();
+                            let variable_name: &str =
+                                &get_variable_data["variable"]["name"].to_string();
 
-                            let (attribute_status, attribute_value): (&str, Option<&str>) = components::get_variable(component_name, variable_name);
+                            let (attribute_status, attribute_value): (&str, Option<&str>) =
+                                components::get_variable(component_name, variable_name);
 
-                            let mut variable = object!{
+                            let mut variable = object! {
                                 "attributeStatus" => attribute_status,
                                 "component" => component_name,
                                 "variable" => object!{
@@ -186,7 +204,7 @@ impl Handler for Client {
                     }
                     "RequestStartTransaction" => {
                         let remote_start_id: u64 = match payload["remoteStartId"].as_number() {
-                            Some(res) => (res.as_fixed_point_i64(0).unwrap_or(0) as u64),
+                            Some(res) => res.as_fixed_point_i64(0).unwrap_or(0) as u64,
                             None => panic!("Parsed message has no value."),
                         };
 
@@ -210,7 +228,11 @@ impl Handler for Client {
 
                         // Send RequestStartTransaction response.
 
-                        let request_start_transaction_msg = responses::request_start_transaction(msg_id, remote_start_id, response_status);
+                        let request_start_transaction_msg = responses::request_start_transaction(
+                            msg_id,
+                            remote_start_id,
+                            response_status,
+                        );
 
                         self.out.send(request_start_transaction_msg)?;
 
@@ -222,9 +244,17 @@ impl Handler for Client {
 
                         let connector_status = "Occupied";
                         let status_notification_msg_id: &str = &Uuid::new_v4().to_string();
-                        let status_notification_msg = requests::status_notification(status_notification_msg_id, 1, 1, connector_status);
+                        let status_notification_msg = requests::status_notification(
+                            status_notification_msg_id,
+                            1,
+                            1,
+                            connector_status,
+                        );
 
-                        storage::set_message(status_notification_msg_id.to_string(), status_notification_msg.to_owned());
+                        storage::set_message(
+                            status_notification_msg_id.to_string(),
+                            status_notification_msg.to_owned(),
+                        );
 
                         storage::queue_add(status_notification_msg);
 
@@ -233,9 +263,20 @@ impl Handler for Client {
                         // Send "Started" TransactionEvent request to notify CSMS about the started transaction.
 
                         let transaction_event_started_msg_id: &str = &Uuid::new_v4().to_string();
-                        let transaction_event_started_msg = requests::transaction_event(transaction_event_started_msg_id, transaction_id, "Started", "RemoteStart", None, Some(remote_start_id), None);
+                        let transaction_event_started_msg = requests::transaction_event(
+                            transaction_event_started_msg_id,
+                            transaction_id,
+                            "Started",
+                            "RemoteStart",
+                            None,
+                            Some(remote_start_id),
+                            None,
+                        );
 
-                        storage::set_message(transaction_event_started_msg_id.to_string(), transaction_event_started_msg.to_owned());
+                        storage::set_message(
+                            transaction_event_started_msg_id.to_string(),
+                            transaction_event_started_msg.to_owned(),
+                        );
 
                         storage::queue_add(transaction_event_started_msg);
 
@@ -245,12 +286,23 @@ impl Handler for Client {
                         // Send "Updated" TransactionEvent request to notify CSMS about the plugged in cable.
 
                         let transaction_event_updated_msg_id: &str = &Uuid::new_v4().to_string();
-                        let transaction_event_updated_msg = requests::transaction_event(transaction_event_updated_msg_id, transaction_id, "Updated", "CablePluggedIn", Some("Charging"), None, None);
+                        let transaction_event_updated_msg = requests::transaction_event(
+                            transaction_event_updated_msg_id,
+                            transaction_id,
+                            "Updated",
+                            "CablePluggedIn",
+                            Some("Charging"),
+                            None,
+                            None,
+                        );
 
-                        storage::set_message(transaction_event_updated_msg_id.to_string(), transaction_event_updated_msg.to_owned());
+                        storage::set_message(
+                            transaction_event_updated_msg_id.to_string(),
+                            transaction_event_updated_msg.to_owned(),
+                        );
 
                         storage::queue_add(transaction_event_updated_msg);
-                    },
+                    }
                     "RequestStopTransaction" => {
                         let transaction_id: &str = &payload["transactionId"].to_string();
                         // Get transaction from hash map.
@@ -263,7 +315,8 @@ impl Handler for Client {
 
                         // Send RequestStopTransaction response.
 
-                        let request_stop_transaction_msg = responses::request_stop_transaction(msg_id, response_status);
+                        let request_stop_transaction_msg =
+                            responses::request_stop_transaction(msg_id, response_status);
 
                         self.out.send(request_stop_transaction_msg)?;
 
@@ -274,18 +327,40 @@ impl Handler for Client {
                         // Send "Updated" TransactionEvent request to notify CSMS about remote stop command.
 
                         let transaction_event_updated_msg_id: &str = &Uuid::new_v4().to_string();
-                        let transaction_event_updated_msg = requests::transaction_event(transaction_event_updated_msg_id, transaction_id, "Updated", "RemoteStop", None, None, None);
+                        let transaction_event_updated_msg = requests::transaction_event(
+                            transaction_event_updated_msg_id,
+                            transaction_id,
+                            "Updated",
+                            "RemoteStop",
+                            None,
+                            None,
+                            None,
+                        );
 
-                        storage::set_message(transaction_event_updated_msg_id.to_string(), transaction_event_updated_msg.to_owned());
+                        storage::set_message(
+                            transaction_event_updated_msg_id.to_string(),
+                            transaction_event_updated_msg.to_owned(),
+                        );
 
                         storage::queue_add(transaction_event_updated_msg);
 
                         // Send "Ended" TransactionEvent request.
 
                         let transaction_event_ended_msg_id: &str = &Uuid::new_v4().to_string();
-                        let transaction_event_ended_msg = requests::transaction_event(transaction_event_ended_msg_id, transaction_id, "Ended", "RemoteStop", None, None, Some("Remote"));
+                        let transaction_event_ended_msg = requests::transaction_event(
+                            transaction_event_ended_msg_id,
+                            transaction_id,
+                            "Ended",
+                            "RemoteStop",
+                            None,
+                            None,
+                            Some("Remote"),
+                        );
 
-                        storage::set_message(transaction_event_ended_msg_id.to_string(), transaction_event_ended_msg.to_owned());
+                        storage::set_message(
+                            transaction_event_ended_msg_id.to_string(),
+                            transaction_event_ended_msg.to_owned(),
+                        );
 
                         storage::queue_add(transaction_event_ended_msg);
 
@@ -296,14 +371,22 @@ impl Handler for Client {
 
                         let connector_status = "Available";
                         let status_notification_msg_id: &str = &Uuid::new_v4().to_string();
-                        let status_notification_msg = requests::status_notification(status_notification_msg_id, 1, 1, connector_status);
+                        let status_notification_msg = requests::status_notification(
+                            status_notification_msg_id,
+                            1,
+                            1,
+                            connector_status,
+                        );
 
-                        storage::set_message(status_notification_msg_id.to_string(), status_notification_msg.to_owned());
+                        storage::set_message(
+                            status_notification_msg_id.to_string(),
+                            status_notification_msg.to_owned(),
+                        );
 
                         storage::queue_add(status_notification_msg);
 
                         storage::set_connector_status(0, 0, connector_status);
-                    },
+                    }
                     _ => println!("No request handler for action: {}", action),
                 }
             }),
@@ -335,9 +418,17 @@ impl Handler for Client {
 
                             let connector_status = "Available";
                             let status_notification_msg_id: &str = &Uuid::new_v4().to_string();
-                            let status_notification_msg = requests::status_notification(status_notification_msg_id, 1, 1, connector_status);
+                            let status_notification_msg = requests::status_notification(
+                                status_notification_msg_id,
+                                1,
+                                1,
+                                connector_status,
+                            );
 
-                            storage::set_message(status_notification_msg_id.to_string(), status_notification_msg.to_owned());
+                            storage::set_message(
+                                status_notification_msg_id.to_string(),
+                                status_notification_msg.to_owned(),
+                            );
 
                             storage::queue_add(status_notification_msg);
 
@@ -347,15 +438,18 @@ impl Handler for Client {
 
                             unsafe {
                                 match payload["interval"].as_number() {
-                                    Some(res) => HEARTBEAT_INTERVAL = (res.as_fixed_point_i64(0).unwrap_or(0) as u64) * 1000,
+                                    Some(res) => {
+                                        HEARTBEAT_INTERVAL =
+                                            (res.as_fixed_point_i64(0).unwrap_or(0) as u64) * 1000
+                                    }
                                     None => panic!("Parsed message has no value."),
                                 };
 
                                 self.out.timeout(HEARTBEAT_INTERVAL, HEARTBEAT)?;
                             }
                         }
-                    },
-                    _=> println!("No response handler for action: {}", msg_from_map_action),
+                    }
+                    _ => println!("No response handler for action: {}", msg_from_map_action),
                 }
             }),
             CALLERROR => {
@@ -366,7 +460,7 @@ impl Handler for Client {
                 println!("CALLERROR Error code: {}", error_code);
                 println!("CALLERROR Error Description: {}", error_description);
                 println!("CALLERROR Error details: {}", error_details);
-            },
+            }
             _ => println!("Unknown message type ID"),
         }
 
@@ -375,13 +469,13 @@ impl Handler for Client {
 
     /// Called any time this endpoint receives a close control frame.
     fn on_close(&mut self, code: CloseCode, reason: &str) {
-       println!("WebSocket closing for ({:?}) {}", code, reason);
-       println!("Shutting down server after first connection closes.");
-       self.out.shutdown().unwrap();
-   }
+        println!("WebSocket closing for ({:?}) {}", code, reason);
+        println!("Shutting down server after first connection closes.");
+        self.out.shutdown().unwrap();
+    }
 
-   /// Shutdown on any error.
-   fn on_error(&mut self, err: Error) {
+    /// Shutdown on any error.
+    fn on_error(&mut self, err: Error) {
         println!("Shutting down server for error: {}", err);
         self.out.shutdown().unwrap();
     }
@@ -408,7 +502,7 @@ impl Handler for Client {
                 }
 
                 Ok(())
-            },
+            }
             QUEUE_FETCH => {
                 let current_timestamp: u64 = Utc::now().timestamp() as u64;
 
@@ -444,7 +538,7 @@ impl Handler for Client {
                 self.out.timeout(QUEUE_FETCH_INTERVAL, QUEUE_FETCH)?;
 
                 Ok(())
-            },
+            }
             // No other events are possible.
             _ => Err(Error::new(
                 ErrorKind::Internal,

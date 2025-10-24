@@ -10,7 +10,7 @@ fn wrap_call_result(msg_id: &str, payload: &str) -> String {
 }
 
 pub fn set_variables(msg_id: &str, variables: JsonValue) -> String {
-    let payload = object!{
+    let payload = object! {
         "setVariableResult" => variables,
     };
 
@@ -18,7 +18,7 @@ pub fn set_variables(msg_id: &str, variables: JsonValue) -> String {
 }
 
 pub fn get_variables(msg_id: &str, variables: JsonValue) -> String {
-    let payload = object!{
+    let payload = object! {
         "getVariableResult" => variables,
     };
 
@@ -26,7 +26,7 @@ pub fn get_variables(msg_id: &str, variables: JsonValue) -> String {
 }
 
 pub fn request_start_transaction(msg_id: &str, remote_start_id: u64, status: &str) -> String {
-    let payload = object!{
+    let payload = object! {
         "remoteStartId" => remote_start_id,
         "status" => status,
     };
@@ -35,7 +35,7 @@ pub fn request_start_transaction(msg_id: &str, remote_start_id: u64, status: &st
 }
 
 pub fn request_stop_transaction(msg_id: &str, status: &str) -> String {
-    let payload = object!{
+    let payload = object! {
         "status" => status,
     };
 

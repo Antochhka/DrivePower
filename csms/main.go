@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"charging_station/internal/ws"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -14,9 +14,9 @@ const (
 	heartbeatInterval = 10
 )
 
-var upgrader = ws.Upgrader{
+var upgrader = websocket.Upgrader{
 	Subprotocols: []string{ocppSubprotocol},
-	CheckOrigin:  func(r *http.Request) bool { return true }, // для локальной отладки
+	CheckOrigin:  func(r *http.Request) bool { return true },
 }
 
 func ocppHandler(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +40,7 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("read err:", err)
 			return
 		}
-		if msgType != ws.TextMessage {
+		if msgType != websocket.TextMessage {
 			log.Println("unexpected message type:", msgType)
 			continue
 		}
@@ -52,12 +52,12 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		typ, _ := frame[0].(float64)   // 2=Call, 3=Result, 4=Error
-		uid, _ := frame[1].(string)    // UniqueId
-		action, _ := frame[2].(string) // "BootNotification", "Heartbeat", ...
+		typ, _ := frame[0].(float64)
+		uid, _ := frame[1].(string)
+		action, _ := frame[2].(string)
 		now := time.Now().UTC().Format(time.RFC3339)
 
-		if int(typ) == 2 { // Call
+		if int(typ) == 2 {
 			switch action {
 			case "BootNotification":
 				resp := []any{3, uid, map[string]any{
@@ -81,9 +81,8 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				log.Println("TX: Heartbeat response")
 
-				closeDeadline := time.Now().Add(2 * time.Second)
-				closeMsg := ws.FormatCloseMessage(1000, "Heartbeat test complete")
-				if err := c.WriteControl(ws.CloseMessage, closeMsg, closeDeadline); err != nil {
+				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Heartbeat test complete")
+				if err := c.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(2*time.Second)); err != nil {
 					log.Println("close control err:", err)
 				} else {
 					log.Println("Closing connection after heartbeat test")
@@ -91,22 +90,27 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 				return
 
 			default:
-				// на прочие вызовы пока не отвечаем
 				log.Println("Unhandled action:", action)
 			}
 		}
 	}
 }
 
-func sendJSON(c *ws.Conn, payload any) error {
+func sendJSON(c *websocket.Conn, payload any) error {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	return c.WriteMessage(ws.TextMessage, b)
+	return c.WriteMessage(websocket.TextMessage, b)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
 }
 
 func main() {
+	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/ocpp/", ocppHandler)
 	log.Println("CSMS stub listening on :8080  (ws)  path=/ocpp/")
 	log.Fatal(http.ListenAndServe(":8080", nil))

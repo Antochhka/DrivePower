@@ -7,7 +7,7 @@ use queues::*;
 #[derive(Clone, Debug)]
 pub struct Connector {
     pub status: &'static str,
-    pub operational: bool,
+    pub _operational: bool,
 }
 
 // Basic information about sent message.
@@ -19,7 +19,7 @@ pub struct SentMessage {
 
 lazy_static! {
     // Array of EVSE each item of which contains an array of connectors.
-    static ref EVSES: Mutex<[[Connector; 1]; 1]> = Mutex::new([[Connector { status: "Inoperative", operational: true }]]);
+    static ref EVSES: Mutex<[[Connector; 1]; 1]> = Mutex::new([[Connector { status: "Inoperative", _operational: true }]]);
     // Sent OCPP messages hash map: message id => stringified message.
     static ref MESSAGES: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
     // Saved transactions. transaction id => stringified transaction.

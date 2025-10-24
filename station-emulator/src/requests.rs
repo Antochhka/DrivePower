@@ -9,9 +9,15 @@ fn wrap_call(msg_id: &str, action: &str, payload: &str) -> String {
     format!("[{}, \"{}\", \"{}\", {}]", CALL, msg_id, action, payload)
 }
 
-pub fn boot_notification(msg_id: &str, reason: &str, model: &str, vendor_name: &str, serial_number: Option<String>) -> String {
+pub fn boot_notification(
+    msg_id: &str,
+    reason: &str,
+    model: &str,
+    vendor_name: &str,
+    serial_number: Option<String>,
+) -> String {
     let action = "BootNotification";
-    let mut payload = object!{
+    let mut payload = object! {
         "reason" => reason,
         "chargingStation" => object!{
             "model" => model,
@@ -33,7 +39,7 @@ pub fn status_notification(msg_id: &str, evse_id: u8, connector_id: u8, status: 
         Some(res) => res.to_rfc3339(),
         None => panic!("Current date is empty."),
     };
-    let payload = object!{
+    let payload = object! {
         "timestamp" => now,
         "connectorStatus" => status,
         "evseId" => evse_id,
@@ -50,13 +56,21 @@ pub fn heartbeat(msg_id: &str) -> String {
     wrap_call(msg_id, action, payload)
 }
 
-pub fn transaction_event(msg_id: &str, transaction_id: &str, event_type: &str, trigger_reason: &str, charging_state: Option<&str>, remote_start_id: Option<u64>, stopped_reason: Option<&str>) -> String {
+pub fn transaction_event(
+    msg_id: &str,
+    transaction_id: &str,
+    event_type: &str,
+    trigger_reason: &str,
+    charging_state: Option<&str>,
+    remote_start_id: Option<u64>,
+    stopped_reason: Option<&str>,
+) -> String {
     let action = "TransactionEvent";
     let now = match Utc::now().with_nanosecond(0) {
         Some(res) => res.to_rfc3339(),
         None => panic!("Current date is empty."),
     };
-    let mut payload = object!{
+    let mut payload = object! {
         "eventType" => event_type,
         "timestamp" => now,
         "triggerReason" => trigger_reason,
