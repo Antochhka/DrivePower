@@ -56,6 +56,7 @@ impl Handler for Client {
     /// Configures interval between fetches in the message queue.
     /// Sends BootNotification message to the message queue.
     fn on_open(&mut self, _: Handshake) -> Result<()> {
+        println!("Соединение установлено, отправляем BootNotification...");
         // Start queue worker.
         self.out.timeout(QUEUE_FETCH_INTERVAL, QUEUE_FETCH)?;
 

@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -32,7 +34,12 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Println("OCPP connected:", r.RemoteAddr)
+	stationID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/ocpp/"), "/")
+	if stationID == "" {
+		stationID = "unknown"
+	}
+
+	log.Printf("OCPP connected: %s (station=%s path=%s)\n", r.RemoteAddr, stationID, r.URL.Path)
 
 	for {
 		msgType, msg, err := c.ReadMessage()
@@ -44,7 +51,7 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println("unexpected message type:", msgType)
 			continue
 		}
-		log.Printf("RX: %s\n", string(msg))
+		log.Printf("RX <- %s: %s\n", stationID, string(msg))
 
 		var frame []any
 		if err := json.Unmarshal(msg, &frame); err != nil || len(frame) < 3 {
@@ -60,6 +67,9 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 		if int(typ) == 2 {
 			switch action {
 			case "BootNotification":
+				vendor, model, reason := parseBootNotification(frame)
+				log.Printf("BootNotification received from %s: vendor=%s model=%s reason=%s\n", stationID, vendor, model, reason)
+
 				resp := []any{3, uid, map[string]any{
 					"currentTime": now,
 					"interval":    heartbeatInterval,
@@ -69,9 +79,10 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 					log.Println("write BootNotification err:", err)
 					return
 				}
-				log.Printf("TX: BootNotification.Accepted (interval=%d)\n", heartbeatInterval)
+				log.Printf("TX -> %s: BootNotification.Accepted (interval=%d)\n", stationID, heartbeatInterval)
 
 			case "Heartbeat":
+				log.Printf("Heartbeat received from %s\n", stationID)
 				resp := []any{3, uid, map[string]any{
 					"currentTime": now,
 				}}
@@ -79,7 +90,7 @@ func ocppHandler(w http.ResponseWriter, r *http.Request) {
 					log.Println("write Heartbeat err:", err)
 					return
 				}
-				log.Println("TX: Heartbeat response")
+				log.Printf("TX -> %s: Heartbeat response\n", stationID)
 
 				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Heartbeat test complete")
 				if err := c.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(2*time.Second)); err != nil {
@@ -107,6 +118,32 @@ func sendJSON(c *websocket.Conn, payload any) error {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+func parseBootNotification(frame []any) (vendor, model, reason string) {
+	if len(frame) < 4 {
+		return "", "", ""
+	}
+
+	payload, _ := frame[3].(map[string]any)
+	if payload != nil {
+		if v, ok := payload["reason"].(string); ok {
+			reason = v
+		}
+		if chargingStation, ok := payload["chargingStation"].(map[string]any); ok {
+			if v, ok := chargingStation["vendorName"].(string); ok {
+				vendor = v
+			}
+			if m, ok := chargingStation["model"].(string); ok {
+				model = m
+			}
+			if serial, ok := chargingStation["serialNumber"].(string); ok && serial != "" {
+				model = fmt.Sprintf("%s (S/N %s)", model, serial)
+			}
+		}
+	}
+
+	return vendor, model, reason
 }
 
 func main() {

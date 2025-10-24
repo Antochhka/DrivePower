@@ -63,5 +63,5 @@ fn main() {
 
     println!("Connecting to: {}", connection_string);
 
-    connect(connection_string, |out| client::Client { out: out }).unwrap()
+    connect(connection_string.as_str(), |out| client::Client { out: out }).unwrap()
 }
