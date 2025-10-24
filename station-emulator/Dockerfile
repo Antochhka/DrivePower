@@ -8,7 +8,7 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 RUN useradd -m emulator
-WORKDIR /app
+WORKDIR /usr/src/app
 COPY --from=builder /usr/src/app/target/release/station-emulator ./station-emulator
 USER emulator
 CMD ["./station-emulator"]
