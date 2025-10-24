@@ -30,6 +30,7 @@ struct Config {
 /// Initializes configuration variables from the environment.
 /// Starts a WebSocket client.
 fn main() {
+    let _ = env_logger::builder().is_test(false).try_init();
     if let Err(err) = dotenv::dotenv() {
         eprintln!(
             "Не удалось прочитать .env: {}. Будут использованы переменные окружения процесса.",
@@ -38,12 +39,12 @@ fn main() {
     }
 
     let csms_url = match env::var("CSMS_URL") {
-        Ok(var) => var,
+        Ok(var) => var.trim().to_string(),
         Err(e) => panic!("Couldn't read CSMS_URL ({})", e),
     };
 
     let station_id = match env::var("STATION_ID") {
-        Ok(var) => var,
+        Ok(var) => var.trim().to_string(),
         Err(e) => panic!("Couldn't read STATION_ID ({})", e),
     };
 
