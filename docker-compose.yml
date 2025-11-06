@@ -14,8 +14,8 @@ services:
       timeout: 3s
       retries: 5
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./csms/migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql:ro
+       - pgdata:/var/lib/postgresql/data            # ← персистентный том
+       - ./csms/migrations:/docker-entrypoint-initdb.d:ro
 
   migrate:
     image: migrate/migrate
@@ -62,4 +62,4 @@ services:
       - ./emulator.env:/usr/src/app/.env:ro
 
 volumes:
-  postgres-data:
+   pgdata: {} 
