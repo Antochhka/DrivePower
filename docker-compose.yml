@@ -15,7 +15,7 @@ services:
       retries: 5
     volumes:
        - pgdata:/var/lib/postgresql/data            # ← персистентный том
-       - ./csms/migrations:/docker-entrypoint-initdb.d:ro
+       #- ./csms/migrations:/docker-entrypoint-initdb.d:ro
 
   migrate:
     image: migrate/migrate
