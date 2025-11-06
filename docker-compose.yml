@@ -1,13 +1,47 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: csms
+      POSTGRES_PASSWORD: csms
+      POSTGRES_DB: csms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U csms"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./csms/migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql:ro
+
+  migrate:
+    image: migrate/migrate
+    container_name: migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./csms/migrations:/migrations:ro
+    entrypoint: ["migrate", "-path", "/migrations", "-database", "postgres://csms:csms@postgres:5432/csms?sslmode=disable"]
+    command: ["up"]
+
   csms:
     build:
       context: ./csms
       dockerfile: Dockerfile
     container_name: csms
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://csms:csms@postgres:5432/csms?sslmode=disable
     healthcheck:
       test: ["CMD", "wget", "-qO", "-", "http://localhost:8080/health"]
       interval: 5s
@@ -26,3 +60,6 @@ services:
       - emulator.env
     volumes:
       - ./emulator.env:/usr/src/app/.env:ro
+
+volumes:
+  postgres-data:

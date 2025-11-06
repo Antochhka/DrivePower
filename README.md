@@ -4,8 +4,9 @@
 
 ## Сервисы
 
-- **CSMS (Go)** — минимальный OCPP 2.0.x сервер, который принимает WebSocket-подключения на `/ocpp/`, отвечает на `BootNotification`/`Heartbeat`, задаёт интервал пинга 10 секунд и закрывает сеанс после тестового heartbeat. HTTP-эндпоинт `/health` используется Docker Compose для проверки готовности.
+- **CSMS (Go)** — минимальный OCPP 2.0.x сервер, который принимает WebSocket-подключения на `/ocpp/`, отвечает на `BootNotification`/`Heartbeat`, задаёт интервал пинга 10 секунд, закрывает сеанс после тестового heartbeat и сохраняет данные станции в PostgreSQL (BootNotification — upsert, Heartbeat — обновление `last_seen_at`). HTTP-эндпоинт `/health` используется Docker Compose для проверки готовности.
 - **station-emulator (Rust)** — эмулятор зарядной станции. Берёт настройки из переменных окружения (можно задать через `.env`), подключается к CSMS, проходит цикл `BootNotification → Heartbeat`, затем корректно завершает соединение после того как сервер отправит закрытие.
+- **PostgreSQL** — база данных, в которой хранятся сведения о зарядных станциях. Контейнер стартует автоматически вместе с Compose, миграции применяются отдельным сервисом `migrate`.
 
 Go-сервис использует библиотеку `github.com/gorilla/websocket`, которая зафиксирована в `csms/third_party/github.com/gorilla/websocket` и подключается через директиву `replace` — благодаря этому сборка не обращается к интернету.
 
@@ -14,16 +15,16 @@ Go-сервис использует библиотеку `github.com/gorilla/we
 1. Установите Docker Desktop или Docker Engine + Docker Compose Plugin.
 2. Склонируйте репозиторий и перейдите в его директорию.
 3. Проверьте файл `emulator.env`: значение `CSMS_URL` должно указывать на `ws://csms:8080/ocpp` (без завершающего `/`). При необходимости отредактируйте остальные параметры станции.
-4. Выполните сборку и запуск обоих сервисов одной командой:
+4. Выполните сборку и запуск всех сервисов одной командой:
 
    ```bash
    docker compose up --build
    ```
 
-   Compose соберёт образы, запустит CSMS (порт 8080) и после успешного healthcheck стартует эмулятор.
+   Compose соберёт образы, поднимет PostgreSQL, применит миграции, запустит CSMS (порт 8080) и после успешного healthcheck стартует эмулятор.
 
 5. Наблюдайте логи прямо в терминале Compose. В них будут видно:
-   - на стороне CSMS — апгрейд WebSocket, входящие фреймы, ответы и сообщение о закрытии после heartbeat;
+   - на стороне CSMS — апгрейд WebSocket, входящие фреймы, записи об обновлении БД, ответы и сообщение о закрытии после heartbeat;
    - на стороне эмулятора — формирование адреса, отправка BootNotification/Heartbeat и обработка закрытия.
 
 6. Для остановки сервисов нажмите `Ctrl+C` в терминале с Compose. Чтобы удалить контейнеры, выполните `docker compose down`.
@@ -38,8 +39,26 @@ Go-сервис использует библиотеку `github.com/gorilla/we
 ## Отладка без Docker
 
 1. Убедитесь, что в системе установлен Go >= 1.21 и Rust toolchain.
-2. В каталоге `csms` выполните `go build` (сборка использует локальную копию gorilla/websocket из `third_party`).
-3. В каталоге `station-emulator` выполните `cargo run` (предварительно создайте `.env` или задайте переменные окружения).
+2. Поднимите PostgreSQL (локально или в Docker) и примените миграции из каталога `csms/migrations` (например, через [golang-migrate](https://github.com/golang-migrate/migrate)).
+3. В каталоге `csms` выполните `go build` и запустите бинарь с переменной окружения `DATABASE_URL=postgres://user:pass@host:5432/dbname?sslmode=disable`.
+4. В каталоге `station-emulator` выполните `cargo run` (предварительно создайте `.env` или задайте переменные окружения).
+
+## Работа с базой данных и миграциями
+
+- Все миграции лежат в `csms/migrations`. При запуске `docker compose up --build` сервис `migrate` автоматически выполняет `migrate -path /migrations -database <DSN> up`.
+- Для повторного применения миграций вручную выполните:
+
+  ```bash
+  docker compose run --rm migrate up
+  ```
+
+- Чтобы посмотреть содержимое таблицы `stations` после тестового сценария:
+
+  ```bash
+  docker compose exec postgres psql -U csms -d csms -c "TABLE stations"
+  ```
+
+- Для очистки состояния базы данных выполните `docker compose down -v` (удалит volume `postgres-data`).
 
 ## Решение конфликтов слияния
 
