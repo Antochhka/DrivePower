@@ -1,77 +1,159 @@
 # DrivePower
 
-Разработка ПО для зарядных станций электрокаров.
+Полноценный учебный стенд для отработки взаимодействия зарядной станции с CSMS по протоколу OCPP 2.0.x. Репозиторий содержит сервер, эмулятор станции, миграции PostgreSQL и инфраструктуру для запуска всего комплекта в Docker Compose.
 
-## Сервисы
+## Основные компоненты
 
-- **CSMS (Go)** — минимальный OCPP 2.0.x сервер, который принимает WebSocket-подключения на `/ocpp/`, отвечает на `BootNotification`/`Heartbeat`, задаёт интервал пинга 10 секунд, закрывает сеанс после тестового heartbeat и сохраняет данные станции в PostgreSQL (BootNotification — upsert, Heartbeat — обновление `last_seen_at`). HTTP-эндпоинт `/health` используется Docker Compose для проверки готовности.
-- **station-emulator (Rust)** — эмулятор зарядной станции. Берёт настройки из переменных окружения (можно задать через `.env`), подключается к CSMS, проходит цикл `BootNotification → Heartbeat`, затем корректно завершает соединение после того как сервер отправит закрытие.
-- **PostgreSQL** — база данных, в которой хранятся сведения о зарядных станциях. Контейнер стартует автоматически вместе с Compose, миграции применяются отдельным сервисом `migrate`.
+| Компонент | Язык | Назначение |
+|-----------|------|------------|
+| [`csms`](./csms) | Go | Минимальный CSMS, принимающий WebSocket-подключения, обрабатывающий сообщения `BootNotification`, `Heartbeat` и `StatusNotification`, а также сохраняющий сведения о станции и коннекторах в PostgreSQL. |
+| [`station-emulator`](./station-emulator) | Rust | CLI-эмулятор зарядной станции, повторяющий базовый цикл регистрации и отправки статусов в CSMS. |
+| [`docker-compose.yml`](./docker-compose.yml) | YAML | Описывает инфраструктуру: PostgreSQL, сервис миграций, CSMS и эмулятор станции. |
 
-Go-сервис использует библиотеку `github.com/gorilla/websocket`, которая зафиксирована в `csms/third_party/github.com/gorilla/websocket` и подключается через директиву `replace` — благодаря этому сборка не обращается к интернету.
+Дополнительно в каталоге [`csms/migrations`](./csms/migrations) лежат миграции базы данных, а в [`csms/internal`](./csms/internal) — код хранилища, реестра статусов и простого WebSocket-реализации, используемой для тестов.
 
 ## Быстрый старт через Docker Compose
 
-1. Установите Docker Desktop или Docker Engine + Docker Compose Plugin.
-2. Склонируйте репозиторий и перейдите в его директорию.
-3. Проверьте файл `emulator.env`: значение `CSMS_URL` должно указывать на `ws://csms:8080/ocpp` (без завершающего `/`). При необходимости отредактируйте остальные параметры станции.
-4. Выполните сборку и запуск всех сервисов одной командой:
+1. Установите Docker Engine и Docker Compose Plugin (или Docker Desktop).
+2. Склонируйте репозиторий и перейдите в каталог проекта:
+
+   ```bash
+   git clone https://github.com/<org>/DrivePower.git
+   cd DrivePower
+   ```
+
+3. Проверьте файл [`emulator.env`](./emulator.env). По умолчанию `CSMS_URL=ws://csms:8080/ocpp`, что подходит для запуска через Compose. При необходимости отредактируйте идентификатор станции, адреса коннекторов и т. д.
+4. Запустите окружение:
 
    ```bash
    docker compose up --build
    ```
 
-   Compose соберёт образы, поднимет PostgreSQL, применит миграции, запустит CSMS (порт 8080) и после успешного healthcheck стартует эмулятор.
+   Команда соберёт образы, поднимет PostgreSQL, применит миграции и запустит сервисы. После прохождения healthcheck эмулятор подключится к CSMS и начнёт обмен сообщениями.
+5. Чтобы остановить окружение, нажмите `Ctrl+C`. Для очистки контейнеров и volume выполните `docker compose down -v`.
 
-5. Наблюдайте логи прямо в терминале Compose. В них будут видно:
-   - на стороне CSMS — апгрейд WebSocket, входящие фреймы, записи об обновлении БД, ответы и сообщение о закрытии после heartbeat;
-   - на стороне эмулятора — формирование адреса, отправка BootNotification/Heartbeat и обработка закрытия.
+### Что увидите в логах
 
-6. Для остановки сервисов нажмите `Ctrl+C` в терминале с Compose. Чтобы удалить контейнеры, выполните `docker compose down`.
+- **CSMS**: соединения WebSocket, содержимое входящих/исходящих фреймов, SQL-операции (успех/ошибка), уведомления о состоянии коннекторов.
+- **Эмулятор**: шаги подключения, формирование сообщений, ответы от сервера, обновления статуса.
+- **Миграции**: применение скриптов к PostgreSQL при запуске.
 
-## Запуск в VS Code
+## Сервис CSMS (Go)
 
-1. Откройте папку репозитория в VS Code.
-2. В терминале №1 запустите `docker compose up --build`. Это поднимет оба сервиса и позволит смотреть объединённые логи прямо в окне редактора.
-3. Если хотите разнести логи по отдельным окнам, после успешной сборки выполните `docker compose logs -f csms` и `docker compose logs -f emulator` в отдельных терминалах VS Code.
-4. Для ручной перезагрузки эмулятора выполните `docker compose restart emulator`; чтобы перезапустить всё — `docker compose down && docker compose up`.
+### Конфигурация
 
-## Отладка без Docker
+CSMS использует одну переменную окружения:
 
-1. Убедитесь, что в системе установлен Go >= 1.21 и Rust toolchain.
-2. Поднимите PostgreSQL (локально или в Docker) и примените миграции из каталога `csms/migrations` (например, через [golang-migrate](https://github.com/golang-migrate/migrate)).
-3. В каталоге `csms` выполните `go build` и запустите бинарь с переменной окружения `DATABASE_URL=postgres://user:pass@host:5432/dbname?sslmode=disable`.
-4. В каталоге `station-emulator` выполните `cargo run` (предварительно создайте `.env` или задайте переменные окружения).
+- `DATABASE_URL` — строка подключения PostgreSQL в формате `postgres://user:pass@host:5432/dbname?sslmode=disable`.
 
-## Работа с базой данных и миграциями
+При запуске через Compose значение задаётся автоматически. Для локального запуска экспортируйте переменную вручную:
 
-- Все миграции лежат в `csms/migrations`. При запуске `docker compose up --build` сервис `migrate` автоматически выполняет `migrate -path /migrations -database <DSN> up`.
-- Для повторного применения миграций вручную выполните:
+```bash
+export DATABASE_URL=postgres://csms:csms@localhost:5432/csms?sslmode=disable
+cd csms
+go run ./...
+```
+
+### Точки входа и протокол
+
+- HTTP-эндпоинт `/health` — используется Compose для проверки готовности сервиса.
+- WebSocket-эндпоинт `/ocpp/{stationId}` — точка подключения зарядных станций. Сервер требует сабпротокол `ocpp2.0`.
+
+Последовательность обмена с эмулятором:
+
+1. `BootNotification` — сервер отвечает `Accepted`, фиксирует интервал heartbeat (10 секунд) и сохраняет сведения о станции.
+2. `Heartbeat` — сервер подтверждает, обновляет `last_seen_at` и **оставляет соединение открытым** для последующих сообщений.
+3. `StatusNotification` — сервер валидирует полезную нагрузку, обновляет in-memory реестр и БД, публикует событие в канал `statusEvents`.
+
+Все сообщения и итоги обработки выводятся в стандартный лог Go.
+
+### Работа с базой данных
+
+Код хранилища находится в [`csms/internal/storage`](./csms/internal/storage). Репозиторий `PostgresStationRepository` выполняет три основные операции:
+
+- Upsert BootNotification в таблицу `stations`.
+- Обновление `last_seen_at` станции.
+- Upsert статусов коннекторов в таблицу `station_connector_statuses`.
+
+Перед выполнением каждого SQL-запроса в лог выводится подробное описание, а после — сообщение об успешной записи или ошибке. Логи помогают отслеживать миграции и фактические операции записи в PostgreSQL.
+
+### Реестр статусов
+
+Модуль [`csms/internal/registry`](./csms/internal/registry) поддерживает состояние коннекторов в памяти. Каждое обновление формирует событие `StatusEvent`, которое можно перенаправить на внешние потребители. По умолчанию события просто логируются.
+
+## Эмулятор станции (Rust)
+
+Каталог [`station-emulator`](./station-emulator) содержит небольшое приложение на Rust, моделирующее поведение зарядной станции.
+
+- Конфигурация считывается из `.env` или переменных окружения (см. [`emulator.env`](./emulator.env)).
+- После запуска эмулятор подключается к CSMS, выполняет `BootNotification`, периодически отправляет `Heartbeat`, а также может слать `StatusNotification` в зависимости от настроек.
+- Сообщения и ответы сервера выводятся в stdout.
+
+Для локального запуска без Docker:
+
+```bash
+cd station-emulator
+cargo run
+```
+
+## Миграции базы данных
+
+Миграции находятся в [`csms/migrations`](./csms/migrations) и совместимы с инструментом [golang-migrate](https://github.com/golang-migrate/migrate).
+
+- Применение в Docker: автоматически выполняется сервисом `migrate` (команда `migrate -path /migrations -database <DSN> up`).
+- Ручной запуск:
 
   ```bash
   docker compose run --rm migrate up
   ```
 
-- Чтобы посмотреть содержимое таблицы `stations` после тестового сценария:
+- Откат последнего шага:
 
   ```bash
-  docker compose exec postgres psql -U csms -d csms -c "TABLE stations"
+  docker compose run --rm migrate down 1
   ```
 
-- Для очистки состояния базы данных выполните `docker compose down -v` (удалит volume `postgres-data`).
+## Локальная разработка без Docker
 
-## Решение конфликтов слияния
+1. Убедитесь, что установлены Go ≥ 1.21, Rust toolchain и PostgreSQL.
+2. Примените миграции к локальной БД `csms`.
+3. Запустите сервер:
 
-Если при слиянии веток GitHub показывает конфликты в `csms/go.mod`, `csms/go.sum` или `csms/main.go`, выполните локально:
+   ```bash
+   cd csms
+   DATABASE_URL=postgres://csms:csms@localhost:5432/csms?sslmode=disable go run ./...
+   ```
+
+4. В другом терминале запустите эмулятор (см. выше).
+
+Для отладки WebSocket можно использовать `wscat`:
 
 ```bash
-git checkout <ваша-ветка>
-git fetch origin
-git merge origin/main
-# вручную поправьте конфликтующие файлы, ориентируясь на текущие изменения в этом коммите
-git add csms/go.mod csms/go.sum csms/main.go
-git commit
-git push
+wscat -c ws://localhost:8080/ocpp/STATION-1 -H "Sec-WebSocket-Protocol: ocpp2.0"
 ```
 
-После разрешения конфликтов повторите операцию Merge Request.
+## Структура каталогов
+
+```
+DrivePower/
+├── csms/                    # Go-сервис CSMS
+│   ├── internal/            # Пакеты хранилища, реестра, простого ws
+│   ├── migrations/          # SQL-миграции PostgreSQL
+│   ├── third_party/         # Зафиксированные внешние зависимости
+│   └── main.go              # Точка входа сервера
+├── station-emulator/        # Эмулятор станции (Rust)
+├── docker-compose.yml       # Инфраструктура стенда
+├── emulator.env             # Пример настроек эмулятора
+└── README.md                # Документация (вы читаете её)
+```
+
+## Полезные команды
+
+- Сборка и тесты CSMS: `cd csms && go test ./...`
+- Форматирование Go-кода: `cd csms && gofmt -w <files>`
+- Просмотр данных в БД: `docker compose exec postgres psql -U csms -d csms -c "TABLE stations"`
+- Прослушивание логов отдельных сервисов: `docker compose logs -f csms`, `docker compose logs -f emulator`
+
+## Лицензия
+
+Проект предназначен для учебных целей. Используйте и модифицируйте свободно в рамках внутренних проектов.

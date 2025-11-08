@@ -123,13 +123,8 @@ func newOCPPHandler(repo storage.StationRepository, connectors *registry.Registr
 					log.Printf("station %s last_seen_at updated to %s\n", stationID, nowString)
 				}
 
-				closeMsg := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Heartbeat test complete")
-				if err := c.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(2*time.Second)); err != nil {
-					log.Println("close control err:", err)
-				} else {
-					log.Println("Closing connection after heartbeat test")
-				}
-				return
+				log.Printf("Heartbeat loop continues for %s\n", stationID)
+				continue
 
 			case "StatusNotification":
 				update, err := parseStatusNotification(frame)
