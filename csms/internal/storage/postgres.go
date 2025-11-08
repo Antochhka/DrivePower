@@ -4,17 +4,41 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/tracelog"
 )
 
 type PostgresStationRepository struct {
 	pool *pgxpool.Pool
 }
 
+const postgresColorPrefix = "\033[1;36mpostgres          |\033[0m"
+
+var postgresLogger = log.New(os.Stdout, "", 0)
+
+func logPostgresf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	msg = strings.TrimRight(msg, "\r\n")
+	postgresLogger.Printf("%s %s", postgresColorPrefix, msg)
+}
+
 func NewPostgresPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	return pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.ConnConfig.Tracer = &tracelog.TraceLog{
+		Logger:   pgxStdLogger{},
+		LogLevel: tracelog.LogLevelInfo,
+	}
+
+	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
 func NewPostgresStationRepository(pool *pgxpool.Pool) *PostgresStationRepository {
@@ -26,7 +50,7 @@ func (r *PostgresStationRepository) UpsertBoot(ctx context.Context, info Station
 		return fmt.Errorf("station id is required")
 	}
 
-	log.Printf("Persisting BootNotification: station=%s vendor=%s model=%s reason=%s at=%s\n",
+	logPostgresf("Persisting BootNotification: station=%s vendor=%s model=%s reason=%s at=%s",
 		info.StationID,
 		info.Vendor,
 		info.Model,
@@ -43,9 +67,9 @@ func (r *PostgresStationRepository) UpsertBoot(ctx context.Context, info Station
                       last_seen_at = EXCLUDED.last_seen_at
     `, info.StationID, info.Vendor, info.Model, info.Reason, info.Time)
 	if err != nil {
-		log.Printf("BootNotification persist failed: station=%s err=%v\n", info.StationID, err)
+		logPostgresf("BootNotification persist failed: station=%s err=%v", info.StationID, err)
 	} else {
-		log.Printf("BootNotification persisted: station=%s\n", info.StationID)
+		logPostgresf("BootNotification persisted: station=%s", info.StationID)
 	}
 	return err
 }
@@ -55,7 +79,7 @@ func (r *PostgresStationRepository) UpdateLastSeen(ctx context.Context, stationI
 		return fmt.Errorf("station id is required")
 	}
 
-	log.Printf("Updating last_seen_at: station=%s timestamp=%s\n", stationID, ts.Format(time.RFC3339))
+	logPostgresf("Updating last_seen_at: station=%s timestamp=%s", stationID, ts.Format(time.RFC3339))
 
 	_, err := r.pool.Exec(ctx, `
         INSERT INTO stations (station_id, last_seen_at)
@@ -64,9 +88,9 @@ func (r *PostgresStationRepository) UpdateLastSeen(ctx context.Context, stationI
         DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
     `, stationID, ts)
 	if err != nil {
-		log.Printf("last_seen_at persist failed: station=%s err=%v\n", stationID, err)
+		logPostgresf("last_seen_at persist failed: station=%s err=%v", stationID, err)
 	} else {
-		log.Printf("last_seen_at persisted: station=%s\n", stationID)
+		logPostgresf("last_seen_at persisted: station=%s", stationID)
 	}
 	return err
 }
@@ -85,7 +109,7 @@ func (r *PostgresStationRepository) UpsertConnectorStatus(ctx context.Context, s
 		return fmt.Errorf("connector status is required")
 	}
 
-	log.Printf("Persisting connector status: station=%s evse=%d connector=%d status=%s timestamp=%s recorded=%s\n",
+	logPostgresf("Persisting connector status: station=%s evse=%d connector=%d status=%s timestamp=%s recorded=%s",
 		status.StationID,
 		status.EVSEID,
 		status.ConnectorID,
@@ -130,13 +154,13 @@ func (r *PostgresStationRepository) UpsertConnectorStatus(ctx context.Context, s
 		status.RecordedAt,
 	)
 	if err != nil {
-		log.Printf("Connector status persist failed: station=%s evse=%d connector=%d err=%v\n",
+		logPostgresf("Connector status persist failed: station=%s evse=%d connector=%d err=%v",
 			status.StationID,
 			status.EVSEID,
 			status.ConnectorID,
 			err)
 	} else {
-		log.Printf("Connector status persisted: station=%s evse=%d connector=%d\n",
+		logPostgresf("Connector status persisted: station=%s evse=%d connector=%d",
 			status.StationID,
 			status.EVSEID,
 			status.ConnectorID)
@@ -149,4 +173,39 @@ func nullIfEmpty(value string) any {
 		return nil
 	}
 	return value
+}
+
+type pgxStdLogger struct{}
+
+func (pgxStdLogger) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
+	if level < tracelog.LogLevelInfo {
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("PostgreSQL ")
+	b.WriteString(level.String())
+	b.WriteString(": ")
+	b.WriteString(msg)
+
+	if len(data) > 0 {
+		keys := make([]string, 0, len(data))
+		for k := range data {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		b.WriteString(" [")
+		for i, k := range keys {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(k)
+			b.WriteString("=")
+			b.WriteString(fmt.Sprint(data[k]))
+		}
+		b.WriteString("]")
+	}
+
+	logPostgresf("%s", b.String())
 }
