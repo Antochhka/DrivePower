@@ -50,3 +50,63 @@ func (r *PostgresStationRepository) UpdateLastSeen(ctx context.Context, stationI
     `, stationID, ts)
 	return err
 }
+
+func (r *PostgresStationRepository) UpsertConnectorStatus(ctx context.Context, status ConnectorStatusRecord) error {
+	if status.StationID == "" {
+		return fmt.Errorf("station id is required")
+	}
+	if status.EVSEID <= 0 {
+		return fmt.Errorf("evse id must be positive")
+	}
+	if status.ConnectorID <= 0 {
+		return fmt.Errorf("connector id must be positive")
+	}
+	if status.ConnectorStatus == "" {
+		return fmt.Errorf("connector status is required")
+	}
+
+	_, err := r.pool.Exec(ctx, `
+        INSERT INTO station_connector_statuses (
+            station_id,
+            evse_id,
+            connector_id,
+            connector_status,
+            evse_status,
+            connector_type,
+            reason_code,
+            vendor_id,
+            vendor_description,
+            status_timestamp,
+            recorded_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (station_id, evse_id, connector_id)
+        DO UPDATE SET connector_status = EXCLUDED.connector_status,
+                      evse_status = EXCLUDED.evse_status,
+                      connector_type = EXCLUDED.connector_type,
+                      reason_code = EXCLUDED.reason_code,
+                      vendor_id = EXCLUDED.vendor_id,
+                      vendor_description = EXCLUDED.vendor_description,
+                      status_timestamp = EXCLUDED.status_timestamp,
+                      recorded_at = EXCLUDED.recorded_at
+    `,
+		status.StationID,
+		status.EVSEID,
+		status.ConnectorID,
+		status.ConnectorStatus,
+		nullIfEmpty(status.EVSEStatus),
+		nullIfEmpty(status.ConnectorType),
+		nullIfEmpty(status.ReasonCode),
+		nullIfEmpty(status.VendorID),
+		nullIfEmpty(status.VendorDescription),
+		status.StatusTimestamp,
+		status.RecordedAt,
+	)
+	return err
+}
+
+func nullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
