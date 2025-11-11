@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"charging_station/internal/ocpp"
 	"charging_station/internal/registry"
 	"charging_station/internal/storage"
 )
@@ -20,6 +21,7 @@ import (
 const (
 	ocppSubprotocol   = "ocpp2.0"
 	heartbeatInterval = 10
+	commandLogPrefix  = "\033[1;35mcommands         |\033[0m"
 )
 
 var upgrader = websocket.Upgrader{
@@ -27,7 +29,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:  func(r *http.Request) bool { return true },
 }
 
-func newOCPPHandler(repo storage.StationRepository, connectors *registry.Registry, events chan<- registry.StatusEvent) http.HandlerFunc {
+func newOCPPHandler(repo storage.StationRepository, connectors *registry.Registry, events chan<- registry.StatusEvent, commands *ocpp.CommandManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -47,6 +49,9 @@ func newOCPPHandler(repo storage.StationRepository, connectors *registry.Registr
 		}
 
 		log.Printf("OCPP connected: %s (station=%s path=%s)\n", r.RemoteAddr, stationID, r.URL.Path)
+
+		commands.AttachConnection(stationID, c)
+		defer commands.DetachConnection(stationID, c)
 
 		ctx := r.Context()
 
@@ -70,131 +75,168 @@ func newOCPPHandler(repo storage.StationRepository, connectors *registry.Registr
 
 			typ, _ := frame[0].(float64)
 			uid, _ := frame[1].(string)
-			action, _ := frame[2].(string)
-			now := time.Now().UTC()
-			nowString := now.Format(time.RFC3339)
 
-			if int(typ) != 2 {
-				continue
-			}
+			switch int(typ) {
+			case 2:
+				action, _ := frame[2].(string)
+				now := time.Now().UTC()
+				nowString := now.Format(time.RFC3339)
 
-			switch action {
-			case "BootNotification":
-				vendor, model, reason := parseBootNotification(frame)
-				log.Printf("BootNotification received from %s: vendor=%s model=%s reason=%s\n", stationID, vendor, model, reason)
+				switch action {
+				case "BootNotification":
+					vendor, model, reason := parseBootNotification(frame)
+					log.Printf("BootNotification received from %s: vendor=%s model=%s reason=%s\n", stationID, vendor, model, reason)
 
-				if err := repo.UpsertBoot(ctx, storage.StationBootInfo{
-					StationID: stationID,
-					Vendor:    vendor,
-					Model:     model,
-					Reason:    reason,
-					Time:      now,
-				}); err != nil {
-					log.Printf("station upsert err for %s: %v\n", stationID, err)
-				} else {
-					log.Printf("station %s stored/updated in database\n", stationID)
-				}
+					if err := repo.UpsertBoot(ctx, storage.StationBootInfo{
+						StationID: stationID,
+						Vendor:    vendor,
+						Model:     model,
+						Reason:    reason,
+						Time:      now,
+					}); err != nil {
+						log.Printf("station upsert err for %s: %v\n", stationID, err)
+					} else {
+						log.Printf("station %s stored/updated in database\n", stationID)
+					}
 
-				resp := []any{3, uid, map[string]any{
-					"currentTime": nowString,
-					"interval":    heartbeatInterval,
-					"status":      "Accepted",
-				}}
-				if err := sendJSON(c, resp); err != nil {
-					log.Println("write BootNotification err:", err)
-					return
-				}
-				log.Printf("TX -> %s: BootNotification.Accepted (interval=%d)\n", stationID, heartbeatInterval)
-
-			case "Heartbeat":
-				log.Printf("Heartbeat received from %s\n", stationID)
-				resp := []any{3, uid, map[string]any{
-					"currentTime": nowString,
-				}}
-				if err := sendJSON(c, resp); err != nil {
-					log.Println("write Heartbeat err:", err)
-					return
-				}
-				log.Printf("TX -> %s: Heartbeat response\n", stationID)
-
-				if err := repo.UpdateLastSeen(ctx, stationID, now); err != nil {
-					log.Printf("update last_seen_at err for %s: %v\n", stationID, err)
-				} else {
-					log.Printf("station %s last_seen_at updated to %s\n", stationID, nowString)
-				}
-
-				log.Printf("Heartbeat loop continues for %s\n", stationID)
-				continue
-
-			case "StatusNotification":
-				update, err := parseStatusNotification(frame)
-				if err != nil {
-					log.Printf("StatusNotification parse err from %s: %v\n", stationID, err)
-					errPayload := []any{4, uid, "FormationViolation", err.Error(), map[string]any{}}
-					if sendErr := sendJSON(c, errPayload); sendErr != nil {
-						log.Println("write StatusNotification error response err:", sendErr)
+					resp := []any{3, uid, map[string]any{
+						"currentTime": nowString,
+						"interval":    heartbeatInterval,
+						"status":      "Accepted",
+					}}
+					if err := sendJSON(c, resp); err != nil {
+						log.Println("write BootNotification err:", err)
 						return
 					}
-					continue
-				}
+					log.Printf("TX -> %s: BootNotification.Accepted (interval=%d)\n", stationID, heartbeatInterval)
 
-				update.Timestamp = update.Timestamp.UTC()
-				event, err := connectors.Update(stationID, update, now)
-				if err != nil {
-					log.Printf("StatusNotification update err for %s: %v\n", stationID, err)
-					errPayload := []any{4, uid, "InternalError", err.Error(), map[string]any{}}
-					if sendErr := sendJSON(c, errPayload); sendErr != nil {
-						log.Println("write StatusNotification error response err:", sendErr)
+				case "Heartbeat":
+					log.Printf("Heartbeat received from %s\n", stationID)
+					resp := []any{3, uid, map[string]any{
+						"currentTime": nowString,
+					}}
+					if err := sendJSON(c, resp); err != nil {
+						log.Println("write Heartbeat err:", err)
 						return
 					}
-					continue
-				}
+					log.Printf("TX -> %s: Heartbeat response\n", stationID)
 
-				persistErr := repo.UpsertConnectorStatus(ctx, storage.ConnectorStatusRecord{
-					StationID:         stationID,
-					EVSEID:            update.EVSEID,
-					ConnectorID:       update.ConnectorID,
-					ConnectorStatus:   event.Current.Status,
-					EVSEStatus:        event.Current.EVSEStatus,
-					ConnectorType:     event.Current.ConnectorType,
-					ReasonCode:        event.Current.ReasonCode,
-					VendorID:          event.Current.VendorID,
-					VendorDescription: event.Current.VendorDescription,
-					StatusTimestamp:   event.Current.StatusTimestamp,
-					RecordedAt:        event.Current.UpdatedAt,
-				})
-				if persistErr != nil {
-					log.Printf("StatusNotification persist err for %s: %v\n", stationID, persistErr)
-					errPayload := []any{4, uid, "InternalError", "failed to persist connector status", map[string]any{}}
-					if sendErr := sendJSON(c, errPayload); sendErr != nil {
-						log.Println("write StatusNotification error response err:", sendErr)
+					if err := repo.UpdateLastSeen(ctx, stationID, now); err != nil {
+						log.Printf("update last_seen_at err for %s: %v\n", stationID, err)
+					} else {
+						log.Printf("station %s last_seen_at updated to %s\n", stationID, nowString)
+					}
+
+					log.Printf("Heartbeat loop continues for %s\n", stationID)
+					continue
+
+				case "StatusNotification":
+					update, err := parseStatusNotification(frame)
+					if err != nil {
+						log.Printf("StatusNotification parse err from %s: %v\n", stationID, err)
+						errPayload := []any{4, uid, "FormationViolation", err.Error(), map[string]any{}}
+						if sendErr := sendJSON(c, errPayload); sendErr != nil {
+							log.Println("write StatusNotification error response err:", sendErr)
+							return
+						}
+						continue
+					}
+
+					update.Timestamp = update.Timestamp.UTC()
+					event, err := connectors.Update(stationID, update, now)
+					if err != nil {
+						log.Printf("StatusNotification update err for %s: %v\n", stationID, err)
+						errPayload := []any{4, uid, "InternalError", err.Error(), map[string]any{}}
+						if sendErr := sendJSON(c, errPayload); sendErr != nil {
+							log.Println("write StatusNotification error response err:", sendErr)
+							return
+						}
+						continue
+					}
+
+					persistErr := repo.UpsertConnectorStatus(ctx, storage.ConnectorStatusRecord{
+						StationID:         stationID,
+						EVSEID:            update.EVSEID,
+						ConnectorID:       update.ConnectorID,
+						ConnectorStatus:   event.Current.Status,
+						EVSEStatus:        event.Current.EVSEStatus,
+						ConnectorType:     event.Current.ConnectorType,
+						ReasonCode:        event.Current.ReasonCode,
+						VendorID:          event.Current.VendorID,
+						VendorDescription: event.Current.VendorDescription,
+						StatusTimestamp:   event.Current.StatusTimestamp,
+						RecordedAt:        event.Current.UpdatedAt,
+					})
+					if persistErr != nil {
+						log.Printf("StatusNotification persist err for %s: %v\n", stationID, persistErr)
+						errPayload := []any{4, uid, "InternalError", "failed to persist connector status", map[string]any{}}
+						if sendErr := sendJSON(c, errPayload); sendErr != nil {
+							log.Println("write StatusNotification error response err:", sendErr)
+							return
+						}
+						continue
+					}
+
+					log.Printf("StatusNotification received from %s: evse=%d connector=%d status=%s (prev=%s)\n",
+						stationID, update.EVSEID, update.ConnectorID, event.Current.Status, event.Previous.Status)
+
+					resp := []any{3, uid, map[string]any{}}
+					if err := sendJSON(c, resp); err != nil {
+						log.Println("write StatusNotification err:", err)
 						return
 					}
-					continue
-				}
 
-				log.Printf("StatusNotification received from %s: evse=%d connector=%d status=%s (prev=%s)\n",
-					stationID, update.EVSEID, update.ConnectorID, event.Current.Status, event.Previous.Status)
+					select {
+					case events <- event:
+					default:
+						log.Printf("status event channel full, dropping event for %s evse=%d connector=%d\n",
+							stationID, update.EVSEID, update.ConnectorID)
+					}
 
-				resp := []any{3, uid, map[string]any{}}
-				if err := sendJSON(c, resp); err != nil {
-					log.Println("write StatusNotification err:", err)
-					return
-				}
+					if err := repo.UpdateLastSeen(ctx, stationID, now); err != nil {
+						log.Printf("update last_seen_at err for %s: %v\n", stationID, err)
+					}
 
-				select {
-				case events <- event:
 				default:
-					log.Printf("status event channel full, dropping event for %s evse=%d connector=%d\n",
-						stationID, update.EVSEID, update.ConnectorID)
+					log.Println("Unhandled action:", action)
 				}
 
-				if err := repo.UpdateLastSeen(ctx, stationID, now); err != nil {
-					log.Printf("update last_seen_at err for %s: %v\n", stationID, err)
+			case 3:
+				if uid == "" {
+					log.Printf("CallResult without message id from %s\n", stationID)
+					continue
 				}
+				var payload map[string]any
+				if len(frame) >= 3 {
+					payload, _ = frame[2].(map[string]any)
+				}
+				log.Printf("RX <- %s: CallResult messageId=%s\n", stationID, uid)
+				commands.HandleCallResult(stationID, uid, payload)
+				continue
+
+			case 4:
+				if uid == "" {
+					log.Printf("CallError without message id from %s\n", stationID)
+					continue
+				}
+				var errorCode, description string
+				if len(frame) >= 3 {
+					errorCode, _ = frame[2].(string)
+				}
+				if len(frame) >= 4 {
+					description, _ = frame[3].(string)
+				}
+				var details map[string]any
+				if len(frame) >= 5 {
+					details, _ = frame[4].(map[string]any)
+				}
+				log.Printf("RX <- %s: CallError messageId=%s code=%s description=%s\n", stationID, uid, errorCode, description)
+				commands.HandleCallError(stationID, uid, errorCode, description, details)
+				continue
 
 			default:
-				log.Println("Unhandled action:", action)
+				log.Printf("Unhandled message type %d from %s\n", int(typ), stationID)
+				continue
 			}
 		}
 	}
@@ -211,6 +253,99 @@ func sendJSON(c *websocket.Conn, payload any) error {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+type commandRequest struct {
+	Action  string         `json:"action"`
+	Payload map[string]any `json:"payload"`
+}
+
+type commandResponse struct {
+	Command ocpp.CommandSnapshot `json:"command"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("write json err: %v", err)
+	}
+}
+
+func writeErrorJSON(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{Error: message})
+}
+
+func stationCommandsHandler(manager *ocpp.CommandManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		trimmed := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/stations/"), "/")
+		if trimmed == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		parts := strings.Split(trimmed, "/")
+		if len(parts) != 2 || parts[1] != "commands" {
+			http.NotFound(w, r)
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		stationID := parts[0]
+		if stationID == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		defer r.Body.Close()
+		var req commandRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, "invalid JSON payload")
+			return
+		}
+
+		snapshot, err := manager.EnqueueCommand(stationID, req.Action, req.Payload, nil)
+		if err != nil {
+			writeErrorJSON(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		log.Printf("API queued command: station=%s action=%s commandId=%s", stationID, req.Action, snapshot.ID)
+		writeJSON(w, http.StatusAccepted, commandResponse{Command: snapshot})
+	}
+}
+
+func commandStatusHandler(manager *ocpp.CommandManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		trimmed := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/commands/"), "/")
+		if trimmed == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		snapshot, ok := manager.GetCommandSnapshot(trimmed)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, commandResponse{Command: snapshot})
+	}
 }
 
 func parseBootNotification(frame []any) (vendor, model, reason string) {
@@ -335,6 +470,12 @@ func main() {
 	repo := storage.NewPostgresStationRepository(pool)
 	connectors := registry.New()
 	statusEvents := make(chan registry.StatusEvent, 64)
+	commandLogger := log.New(os.Stdout, commandLogPrefix+" ", 0)
+	commandManager := ocpp.NewCommandManager(ocpp.CommandManagerConfig{
+		Timeout:     15 * time.Second,
+		MaxAttempts: 3,
+		Logger:      commandLogger,
+	})
 
 	go func() {
 		for event := range statusEvents {
@@ -350,7 +491,9 @@ func main() {
 	}()
 
 	http.HandleFunc("/health", healthHandler)
-	http.HandleFunc("/ocpp/", newOCPPHandler(repo, connectors, statusEvents))
+	http.HandleFunc("/ocpp/", newOCPPHandler(repo, connectors, statusEvents, commandManager))
+	http.HandleFunc("/api/stations/", stationCommandsHandler(commandManager))
+	http.HandleFunc("/api/commands/", commandStatusHandler(commandManager))
 
 	log.Println("CSMS stub listening on :8080  (ws)  path=/ocpp/")
 	log.Fatal(http.ListenAndServe(":8080", nil))
