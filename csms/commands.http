@@ -1,0 +1,16 @@
+### Поставить RemoteStartTransaction
+POST http://localhost:8080/api/stations/CS-001/commands
+Content-Type: application/json
+
+{
+  "action": "RemoteStartTransaction",
+  "payload": {
+    "idToken": {
+      "idToken": "CARD-123456",
+      "type": "ISO14443"
+    }
+  }
+}
+
+### Проверка статуса команды
+GET http://localhost:8080/api/commands/<commandId>
