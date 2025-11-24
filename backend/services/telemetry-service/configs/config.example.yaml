@@ -1,0 +1,5 @@
+http:
+  port: "8084"
+database:
+  dsn: "postgres://user:password@localhost:5432/drivepower?sslmode=disable"
+

@@ -1,0 +1,12 @@
+http:
+  port: "8080"
+jwt:
+  secret: "change-me"
+services:
+  authUrl: "http://localhost:8085"
+  sessionsUrl: "http://localhost:8082"
+  billingUrl: "http://localhost:8083"
+  stationsUrl: "http://localhost:8086"
+httpClient:
+  timeoutSeconds: 5
+

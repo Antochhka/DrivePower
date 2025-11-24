@@ -1,0 +1,11 @@
+http:
+  port: "8081"
+database:
+  dsn: "postgres://user:password@localhost:5432/drivepower?sslmode=disable"
+services:
+  sessionsUrl: "http://localhost:8082"
+  billingUrl: "http://localhost:8083"
+websocket:
+  pingIntervalSeconds: 30
+  writeTimeoutSeconds: 15
+

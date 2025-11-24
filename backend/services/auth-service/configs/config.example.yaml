@@ -1,0 +1,8 @@
+http:
+  port: "8080"
+database:
+  dsn: "postgres://user:password@localhost:5432/drivepower?sslmode=disable"
+jwt:
+  secret: "change-me"
+  expiresInMinutes: 60
+

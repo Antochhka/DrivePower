@@ -1,0 +1,10 @@
+http:
+  port: "8082"
+database:
+  dsn: "postgres://user:password@localhost:5432/drivepower?sslmode=disable"
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  ttlSeconds: 86400
+
