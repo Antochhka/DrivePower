@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"time"
+	"encoding/json"
 
 	"go.uber.org/zap"
 
@@ -14,7 +14,7 @@ import (
 
 // NewStatusNotificationHandler updates station/connector status.
 func NewStatusNotificationHandler(repo *repository.StationRepository, state *service.StationState, logger *zap.Logger) ocpp.HandlerFunc {
-	return func(ctx context.Context, stationID string, payload []byte) (interface{}, error) {
+	return func(ctx context.Context, stationID string, payload json.RawMessage) (interface{}, error) {
 		req, err := ocpp.Decode[protocol.StatusNotificationRequest](payload)
 		if err != nil {
 			return nil, err
@@ -35,4 +35,3 @@ func NewStatusNotificationHandler(repo *repository.StationRepository, state *ser
 		return protocol.StatusNotificationResponse{}, nil
 	}
 }
-

@@ -65,15 +65,17 @@ func populateFromEnv(v reflect.Value, prefix string) error {
 			continue
 		}
 
-		envKey := fieldType.Tag.Get("env")
-		if envKey == "-" {
+		rawKey := fieldType.Tag.Get("env")
+		if rawKey == "-" {
 			continue
 		}
 
-		if envKey == "" {
-			envKey = fieldType.Name
+		var envKey string
+		if rawKey != "" {
+			envKey = normalizeKey("", rawKey)
+		} else {
+			envKey = normalizeKey(prefix, fieldType.Name)
 		}
-		envKey = normalizeKey(prefix, envKey)
 
 		if fieldVal.Kind() == reflect.Struct {
 			if err := populateFromEnv(fieldVal, envKey); err != nil {
@@ -132,4 +134,3 @@ func assign(field reflect.Value, value string) error {
 	}
 	return nil
 }
-

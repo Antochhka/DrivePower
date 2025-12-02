@@ -20,6 +20,7 @@ type Config struct {
 	Services struct {
 		SessionsURL string `yaml:"sessionsUrl" env:"SESSIONS_SERVICE_URL"`
 		BillingURL  string `yaml:"billingUrl" env:"BILLING_SERVICE_URL"`
+		TelemetryURL string `yaml:"telemetryUrl" env:"TELEMETRY_SERVICE_URL"`
 	} `yaml:"services"`
 	WebSocket struct {
 		PingIntervalSeconds int `yaml:"pingIntervalSeconds" env:"OCPP_PING_INTERVAL"`
@@ -82,4 +83,3 @@ func (c *Config) WriteTimeout() time.Duration {
 	}
 	return time.Duration(c.WebSocket.WriteTimeoutSeconds) * time.Second
 }
-

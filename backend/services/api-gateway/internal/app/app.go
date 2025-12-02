@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"net/http"
 
 	"go.uber.org/zap"
 
@@ -62,4 +61,3 @@ func (a *App) Run(ctx context.Context) error {
 
 // Close releases resources (none yet).
 func (a *App) Close() {}
-

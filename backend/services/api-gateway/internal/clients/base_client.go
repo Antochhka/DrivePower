@@ -3,7 +3,6 @@ package clients
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -72,4 +71,3 @@ func (c *BaseClient) Do(ctx context.Context, method, path string, body []byte, h
 func NewDefaultHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{Timeout: timeout}
 }
-

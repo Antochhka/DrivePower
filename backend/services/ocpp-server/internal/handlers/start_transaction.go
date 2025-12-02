@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -18,9 +19,10 @@ func NewStartTransactionHandler(
 	sessions *clients.SessionsClient,
 	billing *clients.BillingClient,
 	state *service.StationState,
+	txStore *service.TransactionStore,
 	logger *zap.Logger,
 ) ocpp.HandlerFunc {
-	return func(ctx context.Context, stationID string, payload []byte) (interface{}, error) {
+	return func(ctx context.Context, stationID string, payload json.RawMessage) (interface{}, error) {
 		req, err := ocpp.Decode[protocol.StartTransactionRequest](payload)
 		if err != nil {
 			return nil, err
@@ -31,31 +33,27 @@ func NewStartTransactionHandler(
 			transactionID = fmt.Sprintf("%s-%d", stationID, time.Now().UnixNano())
 		}
 
+		var sessionID int64
 		if sessions != nil {
-			if err := sessions.CreateFromOCPP(ctx, clients.StartSessionRequest{
+			sessionID, err = sessions.CreateFromOCPP(ctx, clients.StartSessionRequest{
 				StationID:     stationID,
 				ConnectorID:   req.ConnectorID,
 				TransactionID: transactionID,
 				MeterStart:    req.MeterStart,
-			}); err != nil {
+			})
+			if err != nil {
 				logger.Warn("sessions start notification failed", zap.String("station_id", stationID), zap.Error(err))
-			}
-		}
-
-		if billing != nil {
-			if err := billing.NotifySessionStart(ctx, clients.BillingStartRequest{
-				StationID:     stationID,
-				ConnectorID:   req.ConnectorID,
-				TransactionID: transactionID,
-				MeterStart:    req.MeterStart,
-			}); err != nil {
-				logger.Warn("billing start notification failed", zap.String("station_id", stationID), zap.Error(err))
 			}
 		}
 
 		if req.ConnectorID > 0 {
 			state.UpdateConnector(stationID, req.ConnectorID, protocol.ConnectorCharging)
 		}
+
+		txStore.Set(transactionID, service.TransactionContext{
+			SessionID: sessionID,
+			MeterStart: req.MeterStart,
+		})
 
 		resp := protocol.StartTransactionResponse{
 			TransactionID: transactionID,

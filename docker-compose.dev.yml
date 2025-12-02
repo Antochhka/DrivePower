@@ -1,0 +1,171 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: dp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: drivepower
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: dp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: backend/services/auth-service/Dockerfile
+    container_name: auth-service
+    restart: unless-stopped
+    environment:
+      AUTH_HTTP_PORT: "8085"
+      AUTH_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/drivepower?sslmode=disable
+      AUTH_JWT_SECRET: dev-secret
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  billing-service:
+    build:
+      context: .
+      dockerfile: backend/services/billing-service/Dockerfile
+    container_name: billing-service
+    restart: unless-stopped
+    environment:
+      BILLING_HTTP_PORT: "8083"
+      BILLING_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/drivepower?sslmode=disable
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  sessions-service:
+    build:
+      context: .
+      dockerfile: backend/services/sessions-service/Dockerfile
+    container_name: sessions-service
+    restart: unless-stopped
+    environment:
+      SESSIONS_HTTP_PORT: "8082"
+      SESSIONS_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/drivepower?sslmode=disable
+      SESSIONS_REDIS_ADDR: redis:6379
+      SESSIONS_REDIS_PASSWORD: ""
+      SESSIONS_REDIS_DB: "0"
+      SESSIONS_REDIS_TTL: "86400"
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  telemetry-service:
+    build:
+      context: .
+      dockerfile: backend/services/telemetry-service/Dockerfile
+    container_name: telemetry-service
+    restart: unless-stopped
+    environment:
+      TELEMETRY_HTTP_PORT: "8084"
+      TELEMETRY_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/drivepower?sslmode=disable
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ocpp-server:
+    build:
+      context: .
+      dockerfile: backend/services/ocpp-server/Dockerfile
+    container_name: ocpp-server
+    restart: unless-stopped
+    environment:
+      OCPP_HTTP_PORT: "8081"
+      OCPP_POSTGRES_DSN: postgres://postgres:postgres@postgres:5432/drivepower?sslmode=disable
+      SESSIONS_SERVICE_URL: http://sessions-service:8082
+      BILLING_SERVICE_URL: http://billing-service:8083
+      TELEMETRY_SERVICE_URL: http://telemetry-service:8084
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sessions-service:
+        condition: service_started
+      billing-service:
+        condition: service_started
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: backend/services/api-gateway/Dockerfile
+    container_name: api-gateway
+    restart: unless-stopped
+    environment:
+      API_GATEWAY_HTTP_PORT: "8080"
+      API_GATEWAY_JWT_SECRET: dev-secret
+      AUTH_SERVICE_URL: http://auth-service:8085
+      SESSIONS_SERVICE_URL: http://sessions-service:8082
+      BILLING_SERVICE_URL: http://billing-service:8083
+      STATIONS_SERVICE_URL: http://ocpp-server:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth-service:
+        condition: service_started
+      sessions-service:
+        condition: service_started
+
+  csms:
+    build:
+      context: ./csms
+      dockerfile: Dockerfile
+    container_name: csms
+    restart: unless-stopped
+    ports:
+      - "8086:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "-", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  station-emulator:
+    build:
+      context: ./station-emulator
+      dockerfile: Dockerfile
+    container_name: station-emulator
+    restart: unless-stopped
+    env_file:
+      - emulator.env
+    environment:
+      CSMS_URL: ws://ocpp-server:8081/ocpp/ws
+    depends_on:
+      ocpp-server:
+        condition: service_started
+
+volumes:
+  pgdata:

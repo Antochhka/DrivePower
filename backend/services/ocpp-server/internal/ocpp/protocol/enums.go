@@ -13,6 +13,8 @@ const (
 	ActionStatusNotification = "StatusNotification"
 	ActionStartTransaction   = "StartTransaction"
 	ActionStopTransaction    = "StopTransaction"
+	ActionHeartbeat          = "Heartbeat"
+	ActionMeterValues        = "MeterValues"
 )
 
 // Registration status values.
@@ -31,4 +33,3 @@ const (
 	ConnectorFaulted       = "Faulted"
 	ConnectorReserved      = "Reserved"
 )
-

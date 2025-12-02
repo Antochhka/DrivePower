@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,7 +16,7 @@ import (
 
 // NewBootNotificationHandler registers handler.
 func NewBootNotificationHandler(repo *repository.StationRepository, state *service.StationState, logger *zap.Logger) ocpp.HandlerFunc {
-	return func(ctx context.Context, stationID string, payload []byte) (interface{}, error) {
+	return func(ctx context.Context, stationID string, payload json.RawMessage) (interface{}, error) {
 		req, err := ocpp.Decode[protocol.BootNotificationRequest](payload)
 		if err != nil {
 			return nil, err
@@ -45,4 +46,3 @@ func NewBootNotificationHandler(repo *repository.StationRepository, state *servi
 		return resp, nil
 	}
 }
-

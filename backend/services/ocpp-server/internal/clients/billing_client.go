@@ -18,19 +18,11 @@ type BillingClient struct {
 	logger  *zap.Logger
 }
 
-// BillingStartRequest request payload.
-type BillingStartRequest struct {
-	StationID    string `json:"station_id"`
-	ConnectorID  int    `json:"connector_id"`
-	TransactionID string `json:"transaction_id"`
-	MeterStart   int64  `json:"meter_start"`
-}
-
-// BillingStopRequest payload for stop event.
+// BillingStopRequest payload for stop event (uses billing-service OCPP handler).
 type BillingStopRequest struct {
-	TransactionID string `json:"transaction_id"`
-	MeterStop     int64  `json:"meter_stop"`
-	Reason        string `json:"reason"`
+	SessionID int64   `json:"session_id"`
+	UserID    int64   `json:"user_id"`
+	EnergyKWh float64 `json:"energy_kwh"`
 }
 
 // NewBillingClient returns HTTP client wrapper.
@@ -44,22 +36,13 @@ func NewBillingClient(baseURL string, logger *zap.Logger) *BillingClient {
 	}
 }
 
-// NotifySessionStart best-effort call to billing service.
-func (c *BillingClient) NotifySessionStart(ctx context.Context, req BillingStartRequest) error {
-	if c.baseURL == "" {
-		c.logger.Debug("billing client disabled, skip start notification")
-		return nil
-	}
-	return c.post(ctx, "/billing/ocpp/session/start", req)
-}
-
 // NotifySessionStop best-effort call.
 func (c *BillingClient) NotifySessionStop(ctx context.Context, req BillingStopRequest) error {
 	if c.baseURL == "" {
 		c.logger.Debug("billing client disabled, skip stop notification")
 		return nil
 	}
-	return c.post(ctx, "/billing/ocpp/session/stop", req)
+	return c.post(ctx, "/internal/ocpp/session-stopped", req)
 }
 
 func (c *BillingClient) post(ctx context.Context, path string, body interface{}) error {
@@ -84,4 +67,3 @@ func (c *BillingClient) post(ctx context.Context, path string, body interface{})
 	}
 	return nil
 }
-

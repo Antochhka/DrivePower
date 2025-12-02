@@ -58,10 +58,18 @@ fn main() {
     println!("Station id: {:?}", config.station_id);
 
     let mut connection_string: String = config.csms_url.to_owned();
-    connection_string.push_str("/");
+    if connection_string.contains('?') {
+        connection_string.push_str("&");
+    } else {
+        connection_string.push_str("?");
+    }
+    connection_string.push_str("station_id=");
     connection_string.push_str(&config.station_id);
 
     println!("Connecting to: {}", connection_string);
 
-    connect(connection_string.as_str(), |out| client::Client { out: out }).unwrap()
+    connect(connection_string.as_str(), |out| {
+        client::Client::new(out, config.station_id.clone())
+    })
+    .unwrap()
 }

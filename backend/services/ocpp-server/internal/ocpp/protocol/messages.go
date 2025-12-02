@@ -60,8 +60,22 @@ type StopTransactionRequest struct {
 	Timestamp     time.Time `json:"timestamp"`
 	Reason        string    `json:"reason"`
 	StationID     string    `json:"stationId"`
+	MeterStart    int64     `json:"meterStart"` // optional for energy calc
+}
+
+// MeterValuesRequest payload for telemetry.
+type MeterValuesRequest struct {
+	StationID     string    `json:"stationId"`
+	ConnectorID   int       `json:"connectorId"`
+	TransactionID string    `json:"transactionId"`
+	MeterValue    float64   `json:"meterValue"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 // StopTransactionResponse ack.
 type StopTransactionResponse struct{}
 
+// HeartbeatResponse returns server time.
+type HeartbeatResponse struct {
+	CurrentTime time.Time `json:"currentTime"`
+}

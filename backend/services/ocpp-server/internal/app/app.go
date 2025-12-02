@@ -37,9 +37,11 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 	stationRepo := repository.NewStationRepository(sqlDB)
 	logRepo := repository.NewOCPPLogRepository(sqlDB)
 	stationState := service.NewStationState()
+	txStore := service.NewTransactionStore()
 
 	sessionsClient := clients.NewSessionsClient(cfg.Services.SessionsURL, logger)
 	billingClient := clients.NewBillingClient(cfg.Services.BillingURL, logger)
+	telemetryClient := clients.NewTelemetryClient(cfg.Services.TelemetryURL, logger)
 
 	router := ocpp.NewRouter()
 	parser := ocpp.NewParser()
@@ -47,8 +49,10 @@ func New(cfg *config.Config, logger *zap.Logger) (*App, error) {
 
 	router.Register(protocol.ActionBootNotification, handlers.NewBootNotificationHandler(stationRepo, stationState, logger))
 	router.Register(protocol.ActionStatusNotification, handlers.NewStatusNotificationHandler(stationRepo, stationState, logger))
-	router.Register(protocol.ActionStartTransaction, handlers.NewStartTransactionHandler(sessionsClient, billingClient, stationState, logger))
-	router.Register(protocol.ActionStopTransaction, handlers.NewStopTransactionHandler(sessionsClient, billingClient, stationState, logger))
+	router.Register(protocol.ActionStartTransaction, handlers.NewStartTransactionHandler(sessionsClient, billingClient, stationState, txStore, logger))
+	router.Register(protocol.ActionStopTransaction, handlers.NewStopTransactionHandler(sessionsClient, billingClient, stationState, txStore, logger))
+	router.Register(protocol.ActionHeartbeat, handlers.NewHeartbeatHandler())
+	router.Register(protocol.ActionMeterValues, handlers.NewMeterValuesHandler(telemetryClient, txStore, logger))
 
 	manager := ws.NewManager(cfg.PingInterval())
 	wsServer := ws.NewServer(manager, processor, cfg.WriteTimeout(), logger)
@@ -112,4 +116,3 @@ func (a *App) Close() {
 		}
 	}
 }
-

@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -58,4 +59,3 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	go connection.Start(ctx)
 	s.logger.Info("station connected", zap.String("station_id", stationID))
 }
-

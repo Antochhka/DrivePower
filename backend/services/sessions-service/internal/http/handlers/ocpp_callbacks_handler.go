@@ -50,7 +50,7 @@ func (h *OCPPCallbacksHandler) HandleSessionStart(w http.ResponseWriter, r *http
 		return
 	}
 
-	_, err := h.svc.StartSessionFromOCPP(r.Context(), service.StartSessionInput{
+	session, err := h.svc.StartSessionFromOCPP(r.Context(), service.StartSessionInput{
 		UserID:        req.UserID,
 		StationID:     req.StationID,
 		ConnectorID:   req.ConnectorID,
@@ -62,7 +62,7 @@ func (h *OCPPCallbacksHandler) HandleSessionStart(w http.ResponseWriter, r *http
 		writeError(w, http.StatusInternalServerError, "failed to start session")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{"status": "ok", "session_id": session.ID})
 }
 
 // HandleSessionStop handles POST /internal/ocpp/session-stop.
@@ -88,4 +88,3 @@ func (h *OCPPCallbacksHandler) HandleSessionStop(w http.ResponseWriter, r *http.
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "ok"})
 }
-
