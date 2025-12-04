@@ -153,19 +153,5 @@ services:
       timeout: 3s
       retries: 5
 
-  station-emulator:
-    build:
-      context: ./station-emulator
-      dockerfile: Dockerfile
-    container_name: station-emulator
-    restart: unless-stopped
-    env_file:
-      - emulator.env
-    environment:
-      CSMS_URL: ws://ocpp-server:8081/ocpp/ws
-    depends_on:
-      ocpp-server:
-        condition: service_started
-
 volumes:
   pgdata:

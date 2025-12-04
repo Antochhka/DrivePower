@@ -14,15 +14,3 @@ services:
       timeout: 3s
       retries: 5
 
-  emulator:
-    build:
-      context: ./station-emulator     # ВАЖНО: здесь лежит Cargo.toml
-      dockerfile: Dockerfile
-    container_name: station-emulator
-    depends_on:
-      csms:
-        condition: service_healthy
-    env_file:
-      - emulator.env
-    volumes:
-      - ./emulator.env:/usr/src/app/.env:ro
